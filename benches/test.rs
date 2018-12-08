@@ -13,6 +13,11 @@ fn smash_create(b: &mut Bencher) {
 }
 
 #[bench]
+fn std_create(b: &mut Bencher) {
+    b.iter(|| black_box(std::collections::HashMap::<i32, i32>::new()))
+}
+
+#[bench]
 fn fxhashmap_create(b: &mut Bencher) {
     b.iter(|| black_box(fxhash::FxHashMap::<i32, i32>::default()))
 }
@@ -29,6 +34,18 @@ fn smash_insert(b: &mut Bencher) {
         for i in 0..10000 {
             map.insert(i, 10000 - i);
         }
+        black_box(map);
+    })
+}
+
+#[bench]
+fn std_insert(b: &mut Bencher) {
+    b.iter(|| {
+        let mut map = std::collections::HashMap::<i32, i32>::new();
+        for i in 0..10000 {
+            map.insert(i, 10000 - i);
+        }
+        black_box(map);
     })
 }
 
@@ -39,6 +56,7 @@ fn fxhashmap_insert(b: &mut Bencher) {
         for i in 0..10000 {
             map.insert(i, 10000 - i);
         }
+        black_box(map);
     })
 }
 
@@ -49,6 +67,7 @@ fn hashbrown_insert(b: &mut Bencher) {
         for i in 0..10000 {
             map.insert(i, 10000 - i);
         }
+        black_box(map);
     })
 }
 
@@ -60,7 +79,24 @@ fn smash_get_in(b: &mut Bencher) {
     }
     b.iter(|| {
         for i in 0..10000 {
-            assert_eq!(map.get(&i), Some(10000 - i).as_ref());
+            let val = map.get(&i);
+            assert_eq!(val, Some(10000 - i).as_ref());
+            black_box(val);
+        }
+    })
+}
+
+#[bench]
+fn std_get_in(b: &mut Bencher) {
+    let mut map = std::collections::HashMap::<i32, i32>::new();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        for i in 0..10000 {
+            let val = map.get(&i);
+            assert_eq!(val, Some(10000 - i).as_ref());
+            black_box(val);
         }
     })
 }
@@ -73,7 +109,9 @@ fn fxhashmap_get_in(b: &mut Bencher) {
     }
     b.iter(|| {
         for i in 0..10000 {
-            assert_eq!(map.get(&i), Some(10000 - i).as_ref());
+            let val = map.get(&i);
+            assert_eq!(val, Some(10000 - i).as_ref());
+            black_box(val);
         }
     })
 }
@@ -86,7 +124,9 @@ fn hashbrown_get_in(b: &mut Bencher) {
     }
     b.iter(|| {
         for i in 0..10000 {
-            assert_eq!(map.get(&i), Some(10000 - i).as_ref());
+            let val = map.get(&i);
+            assert_eq!(val, Some(10000 - i).as_ref());
+            black_box(val);
         }
     })
 }
@@ -99,7 +139,24 @@ fn smash_get_not_in(b: &mut Bencher) {
     }
     b.iter(|| {
         for i in 0..10000 {
-            assert_eq!(map.get(&i), None);
+            let val = map.get(&i);
+            assert_eq!(val, None);
+            black_box(val);
+        }
+    })
+}
+
+#[bench]
+fn std_get_not_in(b: &mut Bencher) {
+    let mut map = std::collections::HashMap::<i32, i32>::new();
+    for i in 10000..20000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        for i in 0..10000 {
+            let val = map.get(&i);
+            assert_eq!(val, None);
+            black_box(val);
         }
     })
 }
@@ -112,20 +169,24 @@ fn fxhashmap_get_not_in(b: &mut Bencher) {
     }
     b.iter(|| {
         for i in 0..10000 {
-            assert_eq!(map.get(&i), None);
+            let val = map.get(&i);
+            assert_eq!(val, None);
+            black_box(val);
         }
     })
 }
 
 #[bench]
 fn hashbrown_get_not_in(b: &mut Bencher) {
-    let mut map = smash::HashMap::<i32, i32>::new();
+    let mut map = hashbrown::HashMap::<i32, i32>::new();
     for i in 10000..20000 {
         map.insert(i, 10000 - i);
     }
     b.iter(|| {
         for i in 0..10000 {
-            assert_eq!(map.get(&i), None);
+            let val = map.get(&i);
+            assert_eq!(val, None);
+            black_box(val);
         }
     })
 }
@@ -139,7 +200,25 @@ fn smash_remove(b: &mut Bencher) {
     b.iter(|| {
         let mut map = map.clone();
         for i in 0..10000 {
-            assert_eq!(map.remove(&i), Some(10000 - i));
+            let val = map.remove(&i);
+            assert_eq!(val, Some(10000 - i));
+            black_box(val);
+        }
+    })
+}
+
+#[bench]
+fn std_remove(b: &mut Bencher) {
+    let mut map = std::collections::HashMap::<i32, i32>::new();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        let mut map = map.clone();
+        for i in 0..10000 {
+            let val = map.remove(&i);
+            assert_eq!(val, Some(10000 - i));
+            black_box(val);
         }
     })
 }
@@ -153,7 +232,9 @@ fn fxhashmap_remove(b: &mut Bencher) {
     b.iter(|| {
         let mut map = map.clone();
         for i in 0..10000 {
-            assert_eq!(map.remove(&i), Some(10000 - i));
+            let val = map.remove(&i);
+            assert_eq!(val, Some(10000 - i));
+            black_box(val);
         }
     })
 }
@@ -167,7 +248,105 @@ fn hashbrown_remove(b: &mut Bencher) {
     b.iter(|| {
         let mut map = map.clone();
         for i in 0..10000 {
-            assert_eq!(map.remove(&i), Some(10000 - i));
+            let val = map.remove(&i);
+            assert_eq!(val, Some(10000 - i));
+            black_box(val);
         }
     })
+}
+
+#[bench]
+fn smash_iter_keys(b: &mut Bencher) {
+    let mut map = smash::HashMap::<i32, i32>::new();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        assert_eq!(map.keys().map(|i| *i as u64).sum::<u64>(), (0..10000).sum::<u64>());
+    });
+    black_box(map);
+}
+
+#[bench]
+fn std_iter_keys(b: &mut Bencher) {
+    let mut map = std::collections::HashMap::<i32, i32>::new();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        assert_eq!(map.keys().map(|i| *i as u64).sum::<u64>(), (0..10000).sum::<u64>());
+    });
+    black_box(map);
+}
+
+#[bench]
+fn fxhashmap_iter_keys(b: &mut Bencher) {
+    let mut map = fxhash::FxHashMap::<i32, i32>::default();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        assert_eq!(map.keys().map(|i| *i as u64).sum::<u64>(), (0..10000).sum::<u64>());
+    });
+    black_box(map);
+}
+
+#[bench]
+fn hashbrown_iter_keys(b: &mut Bencher) {
+    let mut map = hashbrown::HashMap::<i32, i32>::new();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        assert_eq!(map.keys().map(|i| *i as u64).sum::<u64>(), (0..10000).sum::<u64>());
+    });
+    black_box(map);
+}
+
+#[bench]
+fn smash_iter_values(b: &mut Bencher) {
+    let mut map = smash::HashMap::<i32, i32>::new();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        assert_eq!(map.values().map(|i| *i as u64).sum::<u64>(), (0..10000).map(|i| 10000 - i).sum::<u64>());
+    });
+    black_box(map);
+}
+
+#[bench]
+fn std_iter_values(b: &mut Bencher) {
+    let mut map = std::collections::HashMap::<i32, i32>::new();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        assert_eq!(map.values().map(|i| *i as u64).sum::<u64>(), (0..10000).map(|i| 10000 - i).sum::<u64>());
+    });
+    black_box(map);
+}
+
+#[bench]
+fn fxhashmap_iter_values(b: &mut Bencher) {
+    let mut map = fxhash::FxHashMap::<i32, i32>::default();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        assert_eq!(map.values().map(|i| *i as u64).sum::<u64>(), (0..10000).map(|i| 10000 - i).sum::<u64>());
+    });
+    black_box(map);
+}
+
+#[bench]
+fn hashbrown_iter_values(b: &mut Bencher) {
+    let mut map = hashbrown::HashMap::<i32, i32>::new();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        assert_eq!(map.values().map(|i| *i as u64).sum::<u64>(), (0..10000).map(|i| 10000 - i).sum::<u64>());
+    });
+    black_box(map);
 }
