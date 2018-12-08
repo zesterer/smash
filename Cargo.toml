@@ -1,0 +1,12 @@
+[package]
+name = "smash"
+version = "0.1.0"
+authors = ["Joshua Barretto <joshua.s.barretto@gmail.com>"]
+edition = "2018"
+
+[dev-dependencies]
+hashbrown = "0.1.7"
+
+[dependencies]
+fxhash = "0.2.1"
+allocator_api = "0.5.0"
