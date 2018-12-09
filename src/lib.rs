@@ -40,7 +40,8 @@ impl<T> RawVecGetSet<T> for RawVec<T> {
     }
 }
 
-pub struct HashMap<K: Hash + Eq, V, S: BuildHasher = FxBuildHasher> {
+pub struct HashMap<K: Hash + Eq, V, S: BuildHasher + Default = FxBuildHasher> {
+    //tags: RawVec<u8x32>,
     keys: RawVec<Option<K>>,
     vals: RawVec<V>,
 
@@ -53,6 +54,106 @@ pub struct HashMap<K: Hash + Eq, V, S: BuildHasher = FxBuildHasher> {
 }
 
 impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
+    // Private interface
+
+    fn tag_block_count(cap: usize) -> usize {
+        (cap + 31) / 32
+    }
+
+    fn idx_for(key: &K, cap: usize, hasher: &S) -> usize {
+        let mut hasher = hasher.build_hasher();
+        key.hash(&mut hasher);
+        hasher.finish() as usize & cap.wrapping_sub(1)
+    }
+
+    fn resize_to(&mut self, new_cap: usize) {
+        assert!(new_cap.is_power_of_two());
+
+        let mut new_keys = RawVec::with_capacity(new_cap);
+        let mut new_vals = RawVec::with_capacity(new_cap);
+
+        for new_idx in 0..new_cap {
+            unsafe { new_keys.set(new_idx, None) };
+        }
+
+        // For each value in the existing map
+        for idx in 0..self.cap {
+            if let Some(mut key) = unsafe { self.keys.get(idx) } {
+                let mut val = unsafe { self.vals.get(idx) };
+
+                // Find free index
+                let mut intended_idx = Self::idx_for(&key, new_cap, &self.hasher);
+                let mut new_idx = intended_idx;
+                loop {
+                    match unsafe { new_keys.get_mut(idx) } {
+                        None => break,
+                        Some(k) => { // Robin Hood swapping
+                            let other_intended_idx = Self::idx_for(k, new_cap, &self.hasher);
+                            if intended_idx < other_intended_idx {
+                                std::mem::swap(&mut key, k);
+                                std::mem::swap(&mut val, unsafe { new_vals.get_mut(idx) });
+                                intended_idx = other_intended_idx;
+                            }
+                        },
+                    }
+                    new_idx = (new_idx + 1) & new_cap.wrapping_sub(1);
+                }
+
+                // Write key and value
+                unsafe {
+                    new_keys.set(new_idx, Some(key));
+                    new_vals.set(new_idx, val);
+                }
+            }
+        }
+
+        self.keys = new_keys;
+        self.vals = new_vals;
+        self.cap = new_cap;
+    }
+
+    fn try_grow(&mut self) {
+        // Only grow if len == capacity
+        if self.len < self.cap {
+            return;
+        }
+
+        if self.cap == 0 {
+            self.keys = RawVec::with_capacity(1);
+            self.vals = RawVec::with_capacity(1);
+            self.cap = 1;
+            return;
+        }
+
+        self.resize_to(2 * self.cap);
+    }
+
+    fn try_shrink(&mut self) {
+        // Only shrink if len <= quarter of capacity
+        if self.len > self.cap / 4 {
+            return;
+        }
+
+        self.resize_to(self.cap / 2);
+    }
+
+    fn get_idx(&self, key: &K) -> Option<usize> {
+        let intended_idx = Self::idx_for(key, self.cap, &self.hasher);
+        let mut idx = intended_idx;
+        for _ in 0..self.cap {
+            match unsafe { self.keys.get_ref(idx) } {
+                Some(k) if k.eq(key) => return Some(idx),
+                Some(k) if intended_idx < Self::idx_for(k, self.cap, &self.hasher) => return None,
+                _ => {},
+            }
+
+            idx = (idx + 1) & self.cap.wrapping_sub(1);
+        }
+        None
+    }
+
+    // Public interface
+
     pub fn new() -> Self {
         Self::with_capacity(0)
     }
@@ -63,8 +164,16 @@ impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
 
     pub fn with_capacity_and_hasher(capacity: usize, hasher: S) -> Self {
         let cap = capacity.next_power_of_two();
+
+        let keys = RawVec::with_capacity(cap);
+
+        for idx in 0..cap {
+            unsafe { keys.set(idx, None) };
+        }
+
         Self {
-            keys: RawVec::with_capacity(cap),
+            //tags: RawVec::with_capacity(Self::tag_block_count(cap)),
+            keys,
             vals: RawVec::with_capacity(cap),
 
             len: 0,
@@ -123,88 +232,80 @@ impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
         }
     }
 
-    fn idx_for(&self, key: &K, cap: usize) -> usize {
-        let mut hasher = self.hasher.build_hasher();
-        key.hash(&mut hasher);
-        hasher.finish() as usize & cap.wrapping_sub(1)
+    pub fn values_mut(&mut self) -> ValuesMut<K, V> {
+        ValuesMut {
+            keys: &self.keys,
+            vals: &self.vals,
+            idx: 0,
+        }
     }
 
-    fn resize_to(&mut self, new_cap: usize) {
-        assert!(new_cap.is_power_of_two());
-
-        let mut new_keys = RawVec::with_capacity(new_cap);
-        let mut new_vals = RawVec::with_capacity(new_cap);
-
-        for new_idx in 0..new_cap {
-            unsafe { new_keys.set(new_idx, None) };
+    pub fn iter(&self) -> Iter<K, V> {
+        Iter {
+            keys: &self.keys,
+            vals: &self.vals,
+            idx: 0,
         }
+    }
 
-        // For each value in the existing map
+    pub fn iter_mut(&self) -> IterMut<K, V> {
+        IterMut {
+            keys: &self.keys,
+            vals: &self.vals,
+            idx: 0,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    // TODO: Drain
+
+    pub fn clear(&mut self) {
         for idx in 0..self.cap {
-            if let Some(mut key) = unsafe { self.keys.get(idx) } {
-                let mut val = unsafe { self.vals.get(idx) };
-
-                // Find free index
-                let mut intended_idx = self.idx_for(&key, new_cap);
-                let mut new_idx = intended_idx;
-                loop {
-                    match unsafe { new_keys.get_mut(idx) } {
-                        None => break,
-                        Some(k) => { // Robin Hood swapping
-                            let other_intended_idx = self.idx_for(k, new_cap);
-                            if intended_idx < other_intended_idx {
-                                std::mem::swap(&mut key, k);
-                                std::mem::swap(&mut val, unsafe { new_vals.get_mut(idx) });
-                                intended_idx = other_intended_idx;
-                            }
-                        },
-                    }
-                    new_idx = (new_idx + 1) & new_cap.wrapping_sub(1);
-                }
-
-                // Write key and value
-                unsafe {
-                    new_keys.set(new_idx, Some(key));
-                    new_vals.set(new_idx, val);
-                }
+            if let Some(key) = unsafe { self.keys.get_mut(idx) } {
+                drop(key);
+                drop(unsafe { self.vals.get_mut(idx) });
+                unsafe { self.keys.set(idx, None) };
             }
         }
-
-        self.keys = new_keys;
-        self.vals = new_vals;
-        self.cap = new_cap;
+        self.len = 0;
     }
 
-    fn try_grow(&mut self) {
-        // Only grow if len == capacity
-        if self.len < self.cap {
-            return;
-        }
-
-        if self.cap == 0 {
-            self.keys = RawVec::with_capacity(1);
-            self.vals = RawVec::with_capacity(1);
-            self.cap = 1;
-            return;
-        }
-
-        self.resize_to(2 * self.cap);
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.get_idx(key).map(|idx| {
+            unsafe { self.vals.get_ref(idx) }
+        })
     }
 
-    fn try_shrink(&mut self) {
-        // Only shrink if len <= quarter of capacity
-        if self.len > self.cap / 4 {
-            return;
-        }
+    pub fn get_key_value(&self, key: &K) -> Option<(&K, &V)> {
+        self.get_idx(key).map(|idx| {
+            unsafe { (self.keys.get_ref(idx).as_ref().unwrap(), self.vals.get_ref(idx)) }
+        })
+    }
 
-        self.resize_to(self.cap / 2);
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.get_idx(key).is_some()
+    }
+
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        if let Some(idx) = self.get_idx(key) {
+            Some(unsafe { self.vals.get_mut(idx) })
+        } else {
+            None
+        }
     }
 
     pub fn insert(&mut self, mut key: K, mut val: V) -> Option<V> {
         self.try_grow();
 
         // Find free index
-        let mut intended_idx = self.idx_for(&key, self.cap);
+        let mut intended_idx = Self::idx_for(&key, self.cap, &self.hasher);
         let mut idx = intended_idx;
         for _ in 0..self.cap {
             match unsafe { self.keys.get_mut(idx) } {
@@ -214,7 +315,7 @@ impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
                     return Some(val);
                 },
                 Some(k) => { // Robin Hood swapping
-                    let other_intended_idx = self.idx_for(k, self.cap);
+                    let other_intended_idx = Self::idx_for(k, self.cap, &self.hasher);
                     if intended_idx < other_intended_idx {
                         std::mem::swap(&mut key, k);
                         std::mem::swap(&mut val, unsafe { self.vals.get_mut(idx) });
@@ -237,47 +338,31 @@ impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
     }
 
     pub fn remove(&mut self, key: &K) -> Option<V> {
-        // Find free index
-        let mut idx = self.idx_for(&key, self.cap);
-        for _ in 0..self.cap {
-            match unsafe { self.keys.get_ref(idx) } {
-                None => break,
-                Some(k) if k.eq(&key) => {
-                    let val = unsafe {
-                        self.keys.set(idx, None);
-                        self.vals.get(idx)
-                    };
-                    self.try_shrink();
-                    return Some(val);
-                },
-                Some(_) => {},
-            }
-            idx = (idx + 1) & self.cap.wrapping_sub(1);
+        if let Some(idx) = self.get_idx(key) {
+            let mut old_key = None;
+            std::mem::swap(unsafe { self.keys.get_mut(idx) }, &mut old_key);
+            self.try_shrink();
+            Some(unsafe { self.vals.get(idx) })
+        } else {
+            None
         }
-
-        None
     }
 
-    pub fn get(&self, key: &K) -> Option<&V> {
-        let intended_idx = self.idx_for(key, self.cap);
-        let mut idx = intended_idx;
-        for _ in 0..self.cap {
-            match unsafe { self.keys.get_ref(idx) } {
-                Some(k) if k.eq(key) => return Some(unsafe { self.vals.get_ref(idx) }),
-                Some(k) if intended_idx < self.idx_for(k, self.cap) => return None,
-                _ => {},
-            }
-
-            if unsafe { self.keys.get(idx).map(|k| k.eq(key)).unwrap_or(false) } {
-                return Some(unsafe { self.vals.get_ref(idx) });
-            }
-            idx = (idx + 1) & self.cap.wrapping_sub(1);
+    pub fn remove_entry(&mut self, key: &K) -> Option<(K, V)> {
+        if let Some(idx) = self.get_idx(key) {
+            let mut old_key = None;
+            std::mem::swap(unsafe { self.keys.get_mut(idx) }, &mut old_key);
+            self.try_shrink();
+            Some((old_key.unwrap(), unsafe { self.vals.get(idx) }))
+        } else {
+            None
         }
-        None
     }
+
+    // TODO: retain()
 }
 
-impl<K: Hash + Eq, V, S: BuildHasher> Drop for HashMap<K, V, S> {
+impl<K: Hash + Eq, V, S: BuildHasher + Default> Drop for HashMap<K, V, S> {
     fn drop(&mut self) {
         for idx in 0..self.cap {
             if let Some(key) = unsafe { self.keys.get_mut(idx) } {
@@ -288,10 +373,15 @@ impl<K: Hash + Eq, V, S: BuildHasher> Drop for HashMap<K, V, S> {
     }
 }
 
-impl<K: Hash + Eq + Clone, V: Clone, S: BuildHasher + Clone> Clone for HashMap<K, V, S> {
+impl<K: Hash + Eq + Clone, V: Clone, S: BuildHasher + Clone + Default> Clone for HashMap<K, V, S> {
     fn clone(&self) -> Self {
+        //let mut tags = RawVec::with_capacity(Self::tag_block_count(self.cap));
         let mut keys = RawVec::with_capacity(self.cap);
         let mut vals = RawVec::with_capacity(self.cap);
+
+        //for idx in 0..self.tags.cap() {
+        //    unsafe { tags.set(idx, self.tags.get(idx)) };
+        //}
 
         for idx in 0..self.cap {
             unsafe { keys.set(idx, None) };
@@ -305,6 +395,7 @@ impl<K: Hash + Eq + Clone, V: Clone, S: BuildHasher + Clone> Clone for HashMap<K
         }
 
         Self {
+            //tags,
             keys,
             vals,
 
@@ -318,13 +409,13 @@ impl<K: Hash + Eq + Clone, V: Clone, S: BuildHasher + Clone> Clone for HashMap<K
     }
 }
 
-pub struct Keys<'a, K: 'a, V: 'a> {
+pub struct Keys<'a, K, V> {
     keys: &'a RawVec<Option<K>>,
     vals: &'a RawVec<V>,
     idx: usize,
 }
 
-impl<'a, K: 'a, V: 'a> Iterator for Keys<'a, K, V> {
+impl<'a, K, V> Iterator for Keys<'a, K, V> {
     type Item = &'a K;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -351,8 +442,77 @@ impl<'a, K: 'a, V: 'a> Iterator for Values<'a, K, V> {
     fn next(&mut self) -> Option<Self::Item> {
         while self.idx <= self.keys.cap() {
             self.idx += 1;
-            if let Some(_) = unsafe { self.keys.get_ref(self.idx.wrapping_sub(1)) } {
+            if unsafe { self.keys.get_ref(self.idx.wrapping_sub(1)).is_some() } {
                 return Some(unsafe { self.vals.get_ref(self.idx.wrapping_sub(1)) });
+            }
+        }
+
+        None
+    }
+}
+
+pub struct ValuesMut<'a, K: 'a, V: 'a> {
+    keys: &'a RawVec<Option<K>>,
+    vals: &'a RawVec<V>,
+    idx: usize,
+}
+
+impl<'a, K: 'a, V: 'a> Iterator for ValuesMut<'a, K, V> {
+    type Item = &'a mut V;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.idx <= self.keys.cap() {
+            self.idx += 1;
+            if unsafe { self.keys.get_ref(self.idx.wrapping_sub(1)).is_some() } {
+                return Some(unsafe { self.vals.get_mut(self.idx.wrapping_sub(1)) });
+            }
+        }
+
+        None
+    }
+}
+
+pub struct Iter<'a, K: 'a, V: 'a> {
+    keys: &'a RawVec<Option<K>>,
+    vals: &'a RawVec<V>,
+    idx: usize,
+}
+
+impl<'a, K: 'a, V: 'a> Iterator for Iter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.idx <= self.keys.cap() {
+            self.idx += 1;
+            if let Some(k) = unsafe { self.keys.get_ref(self.idx.wrapping_sub(1)) } {
+                return Some((
+                    k,
+                    unsafe { self.vals.get_ref(self.idx.wrapping_sub(1)) },
+                ));
+            }
+        }
+
+        None
+    }
+}
+
+pub struct IterMut<'a, K: 'a, V: 'a> {
+    keys: &'a RawVec<Option<K>>,
+    vals: &'a RawVec<V>,
+    idx: usize,
+}
+
+impl<'a, K: 'a, V: 'a> Iterator for IterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.idx <= self.keys.cap() {
+            self.idx += 1;
+            if let Some(k) = unsafe { self.keys.get_ref(self.idx.wrapping_sub(1)) } {
+                return Some((
+                    k,
+                    unsafe { self.vals.get_mut(self.idx.wrapping_sub(1)) },
+                ));
             }
         }
 
