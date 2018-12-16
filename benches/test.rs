@@ -7,9 +7,16 @@ extern crate hashbrown;
 
 use test::{Bencher, black_box};
 
+use std::collections::hash_map::RandomState;
+
+fn smashmap_new() -> smash::HashMap<i32, i32> {
+    //smash::HashMap::<i32, i32, RandomState>::with_capacity_and_hasher(0, RandomState::new())
+    smash::HashMap::<i32, i32>::new()
+}
+
 #[bench]
 fn smash_create(b: &mut Bencher) {
-    b.iter(|| black_box(smash::HashMap::<i32, i32>::new()))
+    b.iter(|| black_box(smashmap_new()))
 }
 
 #[bench]
@@ -30,7 +37,7 @@ fn hashbrown_create(b: &mut Bencher) {
 #[bench]
 fn smash_insert(b: &mut Bencher) {
     b.iter(|| {
-        let mut map = smash::HashMap::<i32, i32>::new();
+        let mut map = smashmap_new();
         for i in 0..10000 {
             map.insert(i, 10000 - i);
         }
@@ -73,7 +80,7 @@ fn hashbrown_insert(b: &mut Bencher) {
 
 #[bench]
 fn smash_get_in(b: &mut Bencher) {
-    let mut map = smash::HashMap::<i32, i32>::new();
+    let mut map = smashmap_new();
     for i in 0..10000 {
         map.insert(i, 10000 - i);
     }
@@ -118,7 +125,7 @@ fn fxhashmap_get_in(b: &mut Bencher) {
 
 #[bench]
 fn hashbrown_get_in(b: &mut Bencher) {
-    let mut map = smash::HashMap::<i32, i32>::new();
+    let mut map = hashbrown::HashMap::<i32, i32>::new();
     for i in 0..10000 {
         map.insert(i, 10000 - i);
     }
@@ -133,7 +140,7 @@ fn hashbrown_get_in(b: &mut Bencher) {
 
 #[bench]
 fn smash_get_not_in(b: &mut Bencher) {
-    let mut map = smash::HashMap::<i32, i32>::new();
+    let mut map = smashmap_new();
     for i in 10000..20000 {
         map.insert(i, 10000 - i);
     }
@@ -193,7 +200,7 @@ fn hashbrown_get_not_in(b: &mut Bencher) {
 
 #[bench]
 fn smash_remove(b: &mut Bencher) {
-    let mut map = smash::HashMap::<i32, i32>::new();
+    let mut map = smashmap_new();
     for i in 0..10000 {
         map.insert(i, 10000 - i);
     }
@@ -257,7 +264,7 @@ fn hashbrown_remove(b: &mut Bencher) {
 
 #[bench]
 fn smash_iter_keys(b: &mut Bencher) {
-    let mut map = smash::HashMap::<i32, i32>::new();
+    let mut map = smashmap_new();
     for i in 0..10000 {
         map.insert(i, 10000 - i);
     }
@@ -305,7 +312,7 @@ fn hashbrown_iter_keys(b: &mut Bencher) {
 
 #[bench]
 fn smash_iter_values(b: &mut Bencher) {
-    let mut map = smash::HashMap::<i32, i32>::new();
+    let mut map = smashmap_new();
     for i in 0..10000 {
         map.insert(i, 10000 - i);
     }

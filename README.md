@@ -11,15 +11,20 @@
 Here are some benchmarks demonstrating the performance of `smash` compared to existing hashmaps. Each value is in nanoseconds, although the unit isn't relevant. For each test, I've also indicated what position `smash` comes in the rankings, along with how much faster/slower it is when compared to the best existing hashmap.
 
 ```
-| Test            |       std |  fxhash | hashbrown |   smash | # | diff |
---------------------------------------------------------------------------
-| get existing    |   281,400 |  71,551 |    37,835 |  34,525 | 1 | +10% |
-| get nonexistent |   312,143 |  55,706 |    37,318 |  81,574 | 3 | -54% |
-| insert          | 1,042,481 | 487,573 |   227,432 | 142,154 | 1 | +60% |
-| remove          |   409,926 | 144,056 |   126,923 |  79,461 | 1 | +60% |
-| iterate keys    |    37,455 |  12,902 |    29,237 |  15,263 | 2 | -15% |
-| iterate values  |    38,542 |  13,485 |    29,319 |  20,066 | 2 | -33% |
+| Test            |       std |  fxhash | hashbrown |   smash(fx) | # | speedup |
+--------------------------------------------------------------------------------|
+| creation        |        10 |      12 |         3 |          10 | 2 |   - 17% |
+| get existing    |   297,271 |  78,504 |    64,675 |      39,295 | 1 |   + 39% |
+| get nonexistent |   320,710 |  59,314 |    36,457 |      57,751 | 2 |   - 58% |
+| insert          | 1,081,676 | 542,295 |   267,689 |     167,045 | 1 |   + 38% |
+| remove          |   427,348 | 172,378 |   138,499 |     130,205 | 1 |   +  6% |
+| iterate keys    |    38,808 |  15,360 |    31,946 |      14,752 | 1 |   +  4% |
+| iterate values  |    39,318 |  15,371 |    29,442 |      20,229 | 2 |   - 32% |
 ```
+
+## A Note On Hash Functions
+
+`smash` uses the `fxhash` algorithm to compute hashes. `fxhash`, although faster than `std`'s default hashing function, is not cryptographically secure. Like `hashbrown`, and `std + fxhash`, it is possible for an attacker to design hashmap keys that produce significantly worse performance when using `smash` than the benchmarks above.
 
 ## When should I use `smash`?
 

@@ -56,18 +56,22 @@ pub struct HashMap<K: Hash + Eq, V, S: BuildHasher + Default = FxBuildHasher> {
 impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
     // Private interface
 
+    #[inline(always)]
     fn tag_block_count(cap: usize) -> usize {
         (cap + 31) / 32
     }
 
+    #[inline(always)]
     fn idx_for(key: &K, cap: usize, hasher: &S) -> usize {
         let mut hasher = hasher.build_hasher();
         key.hash(&mut hasher);
         hasher.finish() as usize & cap.wrapping_sub(1)
     }
 
+    #[inline(always)]
     fn resize_to(&mut self, new_cap: usize) {
         assert!(new_cap.is_power_of_two());
+        assert!(new_cap >= self.len);
 
         let mut new_keys = RawVec::with_capacity(new_cap);
         let mut new_vals = RawVec::with_capacity(new_cap);
@@ -85,14 +89,14 @@ impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
                 let mut intended_idx = Self::idx_for(&key, new_cap, &self.hasher);
                 let mut new_idx = intended_idx;
                 loop {
-                    match unsafe { new_keys.get_mut(idx) } {
+                    match unsafe { new_keys.get_mut(new_idx) } {
                         None => break,
                         Some(k) => { // Robin Hood swapping
                             let other_intended_idx = Self::idx_for(k, new_cap, &self.hasher);
-                            if intended_idx < other_intended_idx {
-                                std::mem::swap(&mut key, k);
-                                std::mem::swap(&mut val, unsafe { new_vals.get_mut(idx) });
-                                intended_idx = other_intended_idx;
+                            if (new_cap + intended_idx - other_intended_idx) & new_cap.wrapping_sub(1) >= new_cap / 2 {
+                               std::mem::swap(&mut key, k);
+                               std::mem::swap(&mut val, unsafe { new_vals.get_mut(new_idx) });
+                               intended_idx = other_intended_idx;
                             }
                         },
                     }
@@ -112,6 +116,7 @@ impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
         self.cap = new_cap;
     }
 
+    #[inline(always)]
     fn try_grow(&mut self) {
         // Only grow if len == capacity
         if self.len < self.cap {
@@ -128,6 +133,7 @@ impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
         self.resize_to(2 * self.cap);
     }
 
+    #[inline(always)]
     fn try_shrink(&mut self) {
         // Only shrink if len <= quarter of capacity
         if self.len > self.cap / 4 {
@@ -137,13 +143,14 @@ impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
         self.resize_to(self.cap / 2);
     }
 
+    #[inline(always)]
     fn get_idx(&self, key: &K) -> Option<usize> {
         let intended_idx = Self::idx_for(key, self.cap, &self.hasher);
         let mut idx = intended_idx;
         for _ in 0..self.cap {
             match unsafe { self.keys.get_ref(idx) } {
                 Some(k) if k.eq(key) => return Some(idx),
-                Some(k) if intended_idx < Self::idx_for(k, self.cap, &self.hasher) => return None,
+                Some(k) if (self.cap + intended_idx - Self::idx_for(k, self.cap, &self.hasher)) & self.cap.wrapping_sub(1) > self.cap / 2 => return None,
                 _ => {},
             }
 
@@ -154,14 +161,27 @@ impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
 
     // Public interface
 
+    #[inline(always)]
     pub fn new() -> Self {
-        Self::with_capacity(0)
+        Self {
+            keys: RawVec::new(),
+            vals: RawVec::new(),
+
+            len: 0,
+            cap: 0,
+
+            hasher: Default::default(),
+
+            _phantom: PhantomData,
+        }
     }
 
+    #[inline(always)]
     pub fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity_and_hasher(capacity, Default::default())
     }
 
+    #[inline(always)]
     pub fn with_capacity_and_hasher(capacity: usize, hasher: S) -> Self {
         let cap = capacity.next_power_of_two();
 
@@ -316,7 +336,7 @@ impl<K: Hash + Eq, V, S: BuildHasher + Default> HashMap<K, V, S> {
                 },
                 Some(k) => { // Robin Hood swapping
                     let other_intended_idx = Self::idx_for(k, self.cap, &self.hasher);
-                    if intended_idx < other_intended_idx {
+                    if (self.cap + intended_idx - other_intended_idx) & self.cap.wrapping_sub(1) > self.cap / 2 {
                         std::mem::swap(&mut key, k);
                         std::mem::swap(&mut val, unsafe { self.vals.get_mut(idx) });
                         intended_idx = other_intended_idx;
