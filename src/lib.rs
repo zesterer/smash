@@ -1,4 +1,11 @@
-#![feature(self_struct_ctor, trait_alias)]
+#![feature(
+    self_struct_ctor,
+    trait_alias,
+    bind_by_move_pattern_guards,
+    core_intrinsics,
+)]
+
+pub mod rewrite;
 
 // Standard
 use core::{
@@ -41,7 +48,6 @@ impl<T> RawVecGetSet<T> for RawVec<T> {
 }
 
 pub struct HashMap<K: Hash + Eq, V, S: BuildHasher + Default = FxBuildHasher> {
-    //tags: RawVec<u8x32>,
     keys: RawVec<Option<K>>,
     vals: RawVec<V>,
 

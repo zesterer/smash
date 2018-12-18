@@ -94,6 +94,21 @@ fn smash_get_in(b: &mut Bencher) {
 }
 
 #[bench]
+fn smash_rewrite_get_in(b: &mut Bencher) {
+    let mut map = smash::rewrite::HashMap::<i32, i32>::new();
+    for i in 0..10000 {
+        map.insert(i, 10000 - i);
+    }
+    b.iter(|| {
+        for i in 0..10000 {
+            let val = map.get(&i);
+            assert_eq!(val, Some(10000 - i).as_ref());
+            black_box(val);
+        }
+    })
+}
+
+#[bench]
 fn std_get_in(b: &mut Bencher) {
     let mut map = std::collections::HashMap::<i32, i32>::new();
     for i in 0..10000 {
